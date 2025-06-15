@@ -71,7 +71,8 @@ jobs:
         print('Database operations successful')
         database.close()
         "
-          - name: Security scan with bandit
+        
+    - name: Security scan with bandit
       run: |
         pip install bandit
         bandit -r . -f json -o bandit-report.json || true
