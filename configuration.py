@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path="configuration.env")
 
 # Bot configuration
-BOT_TOKEN: Optional[str] = os.getenv('BOT_TOKEN')
+BOT_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TIMEZONE: str = os.getenv("TIMEZONE", "UTC")  # Default to UTC if not specified
 
 # Validate required configuration
