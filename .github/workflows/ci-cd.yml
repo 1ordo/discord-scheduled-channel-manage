@@ -1,0 +1,164 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  test:
+    name: Test & Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install flake8 black isort mypy
+        
+    - name: Code formatting check (Black)
+      run: black --check --diff .
+      
+    - name: Import sorting check (isort)
+      run: isort --check-only --diff .
+      
+    - name: Lint with flake8
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
+        
+    - name: Type checking with mypy
+      run: mypy . --ignore-missing-imports --no-strict-optional
+      continue-on-error: true
+      
+    - name: Test configuration loading
+      run: |
+        cp configuration.env.template configuration.env
+        sed -i 's/your_discord_bot_token_here/dummy_token_for_testing/' configuration.env
+        python -c "from configuration import BOT_TOKEN, TIMEZONE; print('Config loaded successfully')"
+        
+    - name: Test database operations
+      run: |
+        python -c "
+        from database import database
+        database.connect()
+        database.create_table()
+        print('Database operations successful')
+        database.close()
+        "
+        
+    - name: Security scan with bandit
+      run: |
+        pip install bandit
+        bandit -r . -f json -o bandit-report.json || true
+        
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-scan-results
+        path: bandit-report.json
+        
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' || github.event_name == 'release'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Login to GitHub Container Registry
+      if: github.event_name == 'release'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+          
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: ${{ github.event_name == 'release' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: [test, build-docker]
+    if: github.event_name == 'release'
+    environment: production
+    
+    steps:
+    - name: Deploy to production
+      run: |
+        echo "🚀 Deployment step would go here"
+        echo "This could include:"
+        echo "- Updating a Kubernetes deployment"
+        echo "- Notifying a webhook"
+        echo "- Updating a VPS via SSH"
+        echo "- Deploying to a cloud service"
+        
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [test, build-docker, deploy]
+    if: always()
+    
+    steps:
+    - name: Notify Discord (Success)
+      if: success()
+      run: |
+        echo "✅ All jobs completed successfully"
+        # Add Discord webhook notification here if desired
+        
+    - name: Notify Discord (Failure)
+      if: failure()
+      run: |
+        echo "❌ Pipeline failed"
+        # Add Discord webhook notification here if desired

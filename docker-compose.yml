@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build: .
+    container_name: discord-scheduled-channel-manager
+    restart: unless-stopped
+    
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - TIMEZONE=${TIMEZONE:-UTC}
+      - DATABASE_FILE=system_data.db
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=bot.log
+      - TASK_INTERVAL_MINUTES=${TASK_INTERVAL_MINUTES:-1}
+    
+    volumes:
+      # Persist database and logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      # Mount config if you want to use file-based config
+      - ./configuration.env:/app/configuration.env:ro
+    
+    # Optional: Limit resources
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3; conn = sqlite3.connect('system_data.db'); conn.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add a monitoring service
+  # watchtower:
+  #   image: containrrr/watchtower
+  #   container_name: watchtower
+  #   restart: unless-stopped
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   environment:
+  #     - WATCHTOWER_POLL_INTERVAL=300
+  #     - WATCHTOWER_CLEANUP=true
+
+networks:
+  default:
+    name: discord-bot-network
